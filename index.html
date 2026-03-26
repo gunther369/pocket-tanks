@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pocket Tanks</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="game-wrapper">
+  <div id="hud">
+    <div class="player-info">
+      <div class="player-avatar p1-av">P1</div>
+      <span class="player-name p1-color" id="p1-name">PLAYER 1</span>
+      <span class="score-text p1-color" id="p1-score">0</span>
+    </div>
+    <div id="wind-display">
+      <span class="wind-label">WIND</span>
+      <span class="wind-val" id="wind-val">Calm</span>
+      <span class="round-label" id="round-label">RD 1/10</span>
+    </div>
+    <div class="player-info right">
+      <span class="score-text p2-color" id="p2-score">0</span>
+      <span class="player-name p2-color" id="p2-name">PLAYER 2</span>
+      <div class="player-avatar p2-av">P2</div>
+    </div>
+  </div>
+
+  <div id="canvas-wrap">
+    <canvas id="gameCanvas" width="1200" height="600"></canvas>
+    <div id="turn-banner"></div>
+
+    <div id="mode-overlay">
+      <div class="title-glow"></div>
+      <h1>POCKET TANKS</h1>
+      <p class="subtitle">Artillery duel &mdash; destroy your opponent!</p>
+      <div class="mode-buttons">
+        <button class="mode-btn" id="btn-2p">
+          <span class="mode-icon">&#9872;</span>2 Players
+        </button>
+        <button class="mode-btn" id="btn-cpu">
+          <span class="mode-icon">&#9881;</span>vs CPU
+        </button>
+      </div>
+    </div>
+
+    <div id="name-overlay">
+      <h2 id="name-screen-title">ENTER NAMES</h2>
+      <div class="name-inputs">
+        <div class="name-field">
+          <input id="p1-name-input" class="name-input p1-border" type="text" maxlength="12" placeholder="Player 1" spellcheck="false">
+        </div>
+        <span class="name-vs">VS</span>
+        <div class="name-field" id="p2-name-field">
+          <input id="p2-name-input" class="name-input p2-border" type="text" maxlength="12" placeholder="Player 2" spellcheck="false">
+          <span id="p2-fixed-label" class="name-fixed-label p2-color">CPU</span>
+        </div>
+      </div>
+      <div class="name-actions">
+        <button class="mode-btn name-back-btn" id="btn-back">&#8592; Back</button>
+        <button class="mode-btn name-start-btn" id="btn-start">Start &#9654;</button>
+      </div>
+    </div>
+
+    <div id="game-over-overlay">
+      <h2 id="winner-text"></h2>
+      <div class="score-line" id="score-line"></div>
+      <button id="restart-btn">NEW GAME</button>
+    </div>
+  </div>
+
+  <div id="controls">
+    <div class="ctrl-row">
+      <div class="ctrl-group weapons-group">
+        <label>Weapon</label>
+        <select id="weapon-select"></select>
+      </div>
+      <div class="sep"></div>
+      <div class="ctrl-group">
+        <label>Angle</label>
+        <div class="adjuster">
+          <button class="adj-btn" id="ang-dn">&#9664;</button>
+          <span class="ctrl-val" id="ang-val">45</span><span class="ctrl-unit">&deg;</span>
+          <button class="adj-btn" id="ang-up">&#9654;</button>
+        </div>
+      </div>
+      <div class="sep"></div>
+      <div class="ctrl-group">
+        <label>Power</label>
+        <div class="adjuster">
+          <button class="adj-btn" id="pow-dn">&#9660;</button>
+          <span class="ctrl-val" id="pow-val">50</span><span class="ctrl-unit">%</span>
+          <button class="adj-btn" id="pow-up">&#9650;</button>
+        </div>
+      </div>
+      <div class="sep"></div>
+      <div class="ctrl-group">
+        <label>Move</label>
+        <div class="adjuster">
+          <button class="adj-btn move-btn" id="move-left">&#9664;</button>
+          <span class="ctrl-val" id="move-counter">5</span>
+          <button class="adj-btn move-btn" id="move-right">&#9654;</button>
+        </div>
+      </div>
+      <div class="sep"></div>
+      <div class="ctrl-group">
+        <button id="fire-btn">&#9888; FIRE</button>
+      </div>
+    </div>
+    <div class="keys-hint">
+      <kbd>&larr;</kbd><kbd>&rarr;</kbd> angle
+      <kbd>&uarr;</kbd><kbd>&darr;</kbd> power
+      <kbd>A</kbd><kbd>D</kbd> move
+      <kbd>Q</kbd><kbd>E</kbd> weapon
+      <kbd>Space</kbd> fire
+    </div>
+  </div>
+</div>
+<script src="game.js"></script>
+</body>
+</html>
