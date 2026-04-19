@@ -12,7 +12,26 @@ const MOVES_PER_GAME = 5;
 const MOVE_DIST = 88;
 const MOVE_SPEED = 220;
 const MIN_ANGLE = 0, MAX_ANGLE = 360;
-const TOTAL_ROUNDS = 10;
+
+const CAMPAIGN_OPPONENTS = [
+  { name:"BEAN",   title:"The Rookie",    desc:"Misses more than hits",        accuracy:0.2,  personality:"random",  color:"#88cc44" },
+  { name:"DUKE",   title:"The Soldier",   desc:"Plays by the book",            accuracy:0.3,  personality:"balanced",color:"#44aaff" },
+  { name:"RAVEN",  title:"The Sniper",    desc:"Waits for the perfect shot",   accuracy:0.45, personality:"sniper",  color:"#cc44ff" },
+  { name:"BLAZE",  title:"The Hothead",   desc:"Loves big explosions",         accuracy:0.35, personality:"aggressive",color:"#ff4444" },
+  { name:"SHADOW", title:"The Tactician", desc:"Always two steps ahead",       accuracy:0.5,  personality:"tactical",color:"#666699" },
+  { name:"STORM",  title:"The Berserker", desc:"Chaos is the strategy",        accuracy:0.4,  personality:"chaotic", color:"#ff8800" },
+  { name:"VIPER",  title:"The Assassin",  desc:"Strikes when you least expect",accuracy:0.6,  personality:"sniper",  color:"#44ff88" },
+  { name:"TITAN",  title:"The Heavy",     desc:"Overwhelming firepower",       accuracy:0.55, personality:"heavy",   color:"#ffaa00" },
+  { name:"OMEGA",  title:"The Commander", desc:"Battlefield master",           accuracy:0.7,  personality:"balanced",color:"#ff44aa" },
+  { name:"APEX",   title:"The Legend",    desc:"Has never been beaten",        accuracy:0.85, personality:"expert",  color:"#ffd700" },
+];
+
+const SKY_PRESETS = [
+  { stops:[[0,26,10,46],[0.15,74,25,66],[0.4,192,80,80],[0.6,224,128,64],[0.78,240,192,112],[0.9,253,232,176],[1,253,240,208]], star:0.4 },
+  { stops:[[0,6,9,26],[0.15,14,27,61],[0.4,28,68,116],[0.6,59,125,186],[0.78,106,176,217],[0.9,160,212,234],[1,200,230,240]], star:0 },
+  { stops:[[0,10,10,32],[0.15,26,16,64],[0.4,74,32,96],[0.6,192,64,96],[0.78,224,112,64],[0.9,224,160,80],[1,192,160,112]], star:0.2 },
+  { stops:[[0,2,2,8],[0.15,5,5,16],[0.4,8,8,24],[0.6,10,10,34],[0.78,12,12,40],[0.9,14,16,48],[1,16,18,56]], star:1 },
+];
 
 const WEAPONS = [
   { name:"Single Shot",    radius:22,  damage:20,  speed:1,    count:1,  color:"#ffeedd" },
@@ -59,6 +78,7 @@ const ctx = canvas.getContext("2d");
 let audioCtx;
 function ensureAudio() { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
 function playSound(type) {
+  if (!gameSettings.sound) return;
   try {
     ensureAudio();
     const now = audioCtx.currentTime;
@@ -141,6 +161,13 @@ let bannerTimer = 0;
 let settleTimer = 0;
 let aiDelay = 0;
 let gameTime = 0;
+let gameSettings = { rounds: 10, sound: true, gravity: 1.0, autoDraft: false };
+let draftPool = [], draftPicks = [[], []], draftTurn = 0;
+let campaignMode = false, campaignLevel = 0;
+let weatherType = "none", weatherDrops = [];
+const draftOverlay = $("draft-overlay");
+const campaignOverlay = $("campaign-overlay");
+const settingsOverlay = $("settings-overlay");
 
 /* ============================================================
    PRE-RENDERED BACKGROUNDS (offscreen canvases)
@@ -574,44 +601,120 @@ function drawBats() {
 }
 
 /* ============================================================
+   WEATHER
+   ============================================================ */
+function initWeather() {
+  const r = Math.random();
+  weatherType = r < 0.45 ? "none" : r < 0.78 ? "rain" : "snow";
+  weatherDrops = [];
+  const count = weatherType === "rain" ? 180 : weatherType === "snow" ? 70 : 0;
+  for (let i = 0; i < count; i++) {
+    weatherDrops.push({
+      x: Math.random() * CW, y: Math.random() * CH,
+      speed: weatherType === "rain" ? 300 + Math.random() * 200 : 18 + Math.random() * 28,
+      size: weatherType === "rain" ? 8 + Math.random() * 12 : 1.5 + Math.random() * 2.5,
+      drift: Math.random() * Math.PI * 2,
+    });
+  }
+}
+function updateWeather(dt) {
+  for (const d of weatherDrops) {
+    if (weatherType === "rain") {
+      d.y += d.speed * dt;
+      d.x += (wind * 0.5 + 15) * dt;
+    } else {
+      d.y += d.speed * dt;
+      d.drift += dt;
+      d.x += Math.sin(d.drift) * 15 * dt + wind * 0.1 * dt;
+    }
+    if (d.y > CH) { d.y = -10; d.x = Math.random() * CW; }
+    if (d.x > CW + 20) d.x = -20;
+    if (d.x < -20) d.x = CW + 20;
+  }
+}
+function drawWeather() {
+  if (weatherType === "rain") {
+    ctx.strokeStyle = "rgba(150,180,220,0.3)"; ctx.lineWidth = 1;
+    for (const d of weatherDrops) {
+      ctx.beginPath(); ctx.moveTo(d.x, d.y);
+      ctx.lineTo(d.x + wind * 0.01, d.y + d.size); ctx.stroke();
+    }
+  } else if (weatherType === "snow") {
+    ctx.fillStyle = "rgba(255,255,255,0.5)";
+    for (const d of weatherDrops) {
+      ctx.beginPath(); ctx.arc(d.x, d.y, d.size, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+}
+
+/* ============================================================
    SKY RENDERING
    ============================================================ */
 function drawSky() {
+  const dp = phase === "menu" ? 0.3 : roundNumber / Math.max(1, gameSettings.rounds);
+  let s1, s2, blend;
+  if (dp < 0.15) { s1 = 0; s2 = 1; blend = dp / 0.15; }
+  else if (dp < 0.55) { s1 = 1; s2 = 1; blend = 0; }
+  else if (dp < 0.75) { s1 = 1; s2 = 2; blend = (dp - 0.55) / 0.2; }
+  else { s1 = 2; s2 = 3; blend = Math.min(1, (dp - 0.75) / 0.25); }
+
   const g = ctx.createLinearGradient(0, 0, 0, CH);
-  g.addColorStop(0, "#06091a");
-  g.addColorStop(0.15, "#0e1b3d");
-  g.addColorStop(0.4, "#1c4474");
-  g.addColorStop(0.6, "#3b7dba");
-  g.addColorStop(0.78, "#6ab0d9");
-  g.addColorStop(0.9, "#a0d4ea");
-  g.addColorStop(1, "#c8e6f0");
+  for (let i = 0; i < SKY_PRESETS[s1].stops.length; i++) {
+    const a = SKY_PRESETS[s1].stops[i], b = SKY_PRESETS[s2].stops[i];
+    const r = Math.round(a[1] + (b[1] - a[1]) * blend);
+    const gv = Math.round(a[2] + (b[2] - a[2]) * blend);
+    const bl = Math.round(a[3] + (b[3] - a[3]) * blend);
+    g.addColorStop(a[0], `rgb(${r},${gv},${bl})`);
+  }
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, CW, CH);
 
-  if (starField) ctx.drawImage(starField, 0, 0);
+  const starA = SKY_PRESETS[s1].star + (SKY_PRESETS[s2].star - SKY_PRESETS[s1].star) * blend;
+  if (starField && starA > 0.01) {
+    ctx.globalAlpha = starA;
+    ctx.drawImage(starField, 0, 0);
+    ctx.globalAlpha = 1;
+  }
 
-  // sun
-  const sunX = CW * 0.82, sunY = 90;
-  const sg = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, 180);
-  sg.addColorStop(0, "rgba(255,250,220,0.9)");
-  sg.addColorStop(0.05, "rgba(255,240,180,0.6)");
-  sg.addColorStop(0.15, "rgba(255,200,100,0.15)");
-  sg.addColorStop(0.5, "rgba(255,180,80,0.03)");
-  sg.addColorStop(1, "rgba(255,150,50,0)");
-  ctx.fillStyle = sg;
-  ctx.fillRect(sunX - 180, sunY - 180, 360, 360);
+  const sunAlpha = Math.max(0, 1 - Math.max(0, dp - 0.65) * 5);
+  if (sunAlpha > 0.01) {
+    const sunX = CW * 0.82 - dp * CW * 0.3;
+    const sunY = 90 + dp * 180;
+    ctx.globalAlpha = sunAlpha;
+    const sg = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, 180);
+    sg.addColorStop(0, "rgba(255,250,220,0.9)");
+    sg.addColorStop(0.05, "rgba(255,240,180,0.6)");
+    sg.addColorStop(0.15, "rgba(255,200,100,0.15)");
+    sg.addColorStop(0.5, "rgba(255,180,80,0.03)");
+    sg.addColorStop(1, "rgba(255,150,50,0)");
+    ctx.fillStyle = sg;
+    ctx.fillRect(sunX - 180, sunY - 180, 360, 360);
+    ctx.fillStyle = "rgba(255,252,235,1)";
+    ctx.beginPath(); ctx.arc(sunX, sunY, 14, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
 
-  ctx.fillStyle = "rgba(255,252,235,1)";
-  ctx.beginPath();
-  ctx.arc(sunX, sunY, 14, 0, Math.PI * 2);
-  ctx.fill();
+  if (dp > 0.7) {
+    const moonA = Math.min(1, (dp - 0.7) * 3.3) * 0.8;
+    const mx = CW * 0.25, my = 70;
+    ctx.globalAlpha = moonA;
+    ctx.fillStyle = "#e8e0cc";
+    ctx.beginPath(); ctx.arc(mx, my, 16, 0, Math.PI * 2); ctx.fill();
+    const mg = ctx.createRadialGradient(mx, my, 0, mx, my, 80);
+    mg.addColorStop(0, "rgba(232,224,204,0.2)"); mg.addColorStop(1, "rgba(232,224,204,0)");
+    ctx.fillStyle = mg;
+    ctx.beginPath(); ctx.arc(mx, my, 80, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
 
-  // atmospheric haze near horizon
-  const hz = ctx.createLinearGradient(0, CH * 0.6, 0, CH);
-  hz.addColorStop(0, "rgba(180,210,230,0)");
-  hz.addColorStop(1, "rgba(180,210,230,0.12)");
-  ctx.fillStyle = hz;
-  ctx.fillRect(0, CH * 0.6, CW, CH * 0.4);
+  const hazeA = 0.12 * Math.max(0, 1 - dp * 0.8);
+  if (hazeA > 0.005) {
+    const hz = ctx.createLinearGradient(0, CH * 0.6, 0, CH);
+    hz.addColorStop(0, "rgba(180,210,230,0)");
+    hz.addColorStop(1, `rgba(180,210,230,${hazeA})`);
+    ctx.fillStyle = hz;
+    ctx.fillRect(0, CH * 0.6, CW, CH * 0.4);
+  }
 }
 
 function drawMountains() {
@@ -723,10 +826,10 @@ function drawWater() {
 /* ============================================================
    TANK RENDERING
    ============================================================ */
-function createTank(id, x) {
+function createTank(id, x, inventory) {
   return { id, x, hp: 100, score: 0, barrelAngle: 45, movesLeft: MOVES_PER_GAME,
-    savedAngle: 45, savedPower: 50, savedWeapon: 0,
-    usedWeapons: new Set() };
+    savedAngle: 45, savedPower: 50, savedWeapon: inventory ? inventory[0] : 0,
+    usedWeapons: new Set(), inventory: inventory || [] };
 }
 function tankSurfaceY(tank) { return terrainY(tank.x); }
 
@@ -900,7 +1003,7 @@ function drawTank(tank, isActive) {
   const ang = drawAng * Math.PI / 180;
   ctx.save();
   ctx.translate(0, turretCy);
-  ctx.rotate(-ang * dir);
+  ctx.rotate(-ang * dir - slope);
   // barrel shadow
   ctx.fillStyle = "rgba(0,0,0,0.2)";
   ctx.beginPath();
@@ -985,11 +1088,13 @@ function barrelTip(tank, ang, dir) {
   const cosS = Math.cos(slope), sinS = Math.sin(slope);
   const localTY = -14 - 6 - 2;
   const BL = 30;
-  const bx = dir * BL * Math.cos(ang);
-  const by = -BL * Math.sin(ang);
+  const turretX = tank.x - localTY * sinS;
+  const turretY = sy + localTY * cosS;
+  const tipDx = dir * BL * Math.cos(ang);
+  const tipDy = -BL * Math.sin(ang);
   return {
-    x: tank.x + -localTY * sinS + bx * cosS - by * sinS,
-    y: sy   +  localTY * cosS + bx * sinS + by * cosS,
+    x: turretX + tipDx,
+    y: turretY + tipDy,
     cosS, sinS
   };
 }
@@ -1001,10 +1106,8 @@ function drawAimGuide() {
   const ang = angle * Math.PI / 180;
   const tip = barrelTip(tank, ang, dir);
   const dist = 55 + power * 0.65;
-  const aDx = dir * dist * Math.cos(ang);
-  const aDy = -dist * Math.sin(ang);
-  const cx = tip.x + aDx * tip.cosS - aDy * tip.sinS;
-  const cy = tip.y + aDx * tip.sinS + aDy * tip.cosS;
+  const cx = tip.x + dir * dist * Math.cos(ang);
+  const cy = tip.y - dist * Math.sin(ang);
 
   const size = 8;
   const pulse = 0.4 + 0.3 * Math.sin(gameTime * 5);
@@ -1049,10 +1152,6 @@ function createProjectile(ox, oy, vx, vy, weapon) {
   return { x: ox, y: oy, vx, vy, weapon, trail: [], alive: true };
 }
 
-function slopeRotateVelocity(lvx, lvy, cosS, sinS) {
-  return { vx: lvx * cosS - lvy * sinS, vy: lvx * sinS + lvy * cosS };
-}
-
 function fireProjectile() {
   if (phase !== "aiming") return;
   const tank = tanks[currentPlayer];
@@ -1065,15 +1164,13 @@ function fireProjectile() {
   const sx = tip.x;
   const sy = tip.y;
   const spd = power * VEL_SCALE * w.speed;
-  const { cosS, sinS } = tip;
 
   for (let i = 0; i < 8; i++) {
     const a = ang + (Math.random() - 0.5) * 0.5;
     const s = 50 + Math.random() * 100;
-    const lv = slopeRotateVelocity(dir * Math.cos(a) * s, -Math.sin(a) * s - 20, cosS, sinS);
     particles.push({
       x: sx, y: sy,
-      vx: lv.vx, vy: lv.vy,
+      vx: dir * Math.cos(a) * s, vy: -Math.sin(a) * s - 20,
       life: 0.1 + Math.random() * 0.15, elapsed: 0,
       size: 2 + Math.random() * 3,
       color: "#fff8cc"
@@ -1084,8 +1181,7 @@ function fireProjectile() {
     const spr = (w.spread || 5) * Math.PI / 180;
     for (let i = 0; i < w.count; i++) {
       const a = ang + (i - (w.count - 1) / 2) * spr;
-      const v = slopeRotateVelocity(dir * spd * Math.cos(a), -spd * Math.sin(a), cosS, sinS);
-      const p = createProjectile(sx, sy, v.vx, v.vy, w);
+      const p = createProjectile(sx, sy, dir * spd * Math.cos(a), -spd * Math.sin(a), w);
       if (w.bounce) p.bouncesLeft = w.bounce;
       if (w.homing) p.homing = true;
       if (w.roller) p.roller = true;
@@ -1093,8 +1189,7 @@ function fireProjectile() {
       projectiles.push(p);
     }
   } else {
-    const v = slopeRotateVelocity(dir * spd * Math.cos(ang), -spd * Math.sin(ang), cosS, sinS);
-    const p = createProjectile(sx, sy, v.vx, v.vy, w);
+    const p = createProjectile(sx, sy, dir * spd * Math.cos(ang), -spd * Math.sin(ang), w);
     if (w.bounce) p.bouncesLeft = w.bounce;
     if (w.homing) p.homing = true;
     if (w.splitAbove) { p.splitAbove = true; p.splitCount = w.splitCount; }
@@ -1136,12 +1231,12 @@ function updateProjectiles(dt) {
           continue;
         }
       } else {
-        p.vy += GRAVITY * dt;
+        p.vy += GRAVITY * gameSettings.gravity * dt;
       }
       p.vx += wind * dt * 0.3;
     } else {
       p.vx += wind * dt;
-      p.vy += GRAVITY * dt;
+      p.vy += GRAVITY * gameSettings.gravity * dt;
     }
 
     p.x += p.vx * dt;
@@ -1161,6 +1256,7 @@ function updateProjectiles(dt) {
       });
     }
 
+    if (!isFinite(p.x) || !isFinite(p.y)) { p.alive = false; continue; }
     if (p.x < -50 || p.x > CW + 50 || p.y > CH + 50) { p.alive = false; continue; }
     if (p.y < -800) continue;
 
@@ -1231,22 +1327,22 @@ function updateProjectiles(dt) {
 
 function drawProjectiles() {
   for (const p of projectiles) {
-    if (!p.alive) continue;
+    if (!p.alive || !isFinite(p.x) || !isFinite(p.y)) continue;
     for (let i = 0; i < p.trail.length; i++) {
+      const pt = p.trail[i];
+      if (!isFinite(pt.x) || !isFinite(pt.y)) continue;
       const a = (i / p.trail.length) * 0.4;
       const r = 1 + (i / p.trail.length) * 1.5;
       ctx.fillStyle = `rgba(255,200,120,${a})`;
       ctx.beginPath();
-      ctx.arc(p.trail[i].x, p.trail[i].y, r, 0, Math.PI * 2);
+      ctx.arc(pt.x, pt.y, r, 0, Math.PI * 2);
       ctx.fill();
     }
-    // glow
     const pg = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 12);
     pg.addColorStop(0, "rgba(255,240,200,0.4)");
     pg.addColorStop(1, "rgba(255,200,100,0)");
     ctx.fillStyle = pg;
     ctx.fillRect(p.x - 12, p.y - 12, 24, 24);
-    // core
     ctx.fillStyle = p.weapon.color;
     ctx.shadowColor = p.weapon.color;
     ctx.shadowBlur = 10;
@@ -1322,6 +1418,7 @@ function triggerExplosion(x, y, weapon) {
   });
 }
 
+let terrainDirty = false;
 function destroyTerrain(cx, cy, radius) {
   for (let x = Math.max(0, Math.floor(cx - radius)); x < Math.min(CW, Math.ceil(cx + radius)); x++) {
     const dx = x - cx;
@@ -1332,7 +1429,10 @@ function destroyTerrain(cx, cy, radius) {
       terrain[x] = Math.max(0, CH - bottomCircle);
     }
   }
-  buildTerrainDetailLayer();
+  terrainDirty = true;
+}
+function flushTerrainDetail() {
+  if (terrainDirty) { buildTerrainDetailLayer(); terrainDirty = false; }
 }
 
 function applyDamage(ex, ey, weapon) {
@@ -1376,6 +1476,7 @@ function updateExplosions(dt) {
 
 function drawExplosions() {
   for (const e of explosions) {
+    if (!isFinite(e.x) || !isFinite(e.y) || !isFinite(e.r) || e.r <= 0) continue;
     if (e.phase === 0) {
       const g = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, e.r);
       g.addColorStop(0, `rgba(255,255,220,${e.alpha})`);
@@ -1487,7 +1588,7 @@ function settleTanks(dt) {
     if (shotsThisRound >= 2) {
       shotsThisRound = 0;
       roundNumber++;
-      if (roundNumber >= TOTAL_ROUNDS) {
+      if (roundNumber >= gameSettings.rounds) {
         phase = "gameover"; showGameOver(); return;
       }
     }
@@ -1509,9 +1610,8 @@ function switchTurn() {
   angle = next.savedAngle;
   power = next.savedPower;
   selectedWeapon = next.usedWeapons.has(next.savedWeapon)
-    ? WEAPONS.findIndex((_, i) => !next.usedWeapons.has(i))
+    ? (next.inventory.find(i => !next.usedWeapons.has(i)) ?? next.inventory[0] ?? 0)
     : next.savedWeapon;
-  if (selectedWeapon < 0) selectedWeapon = 0;
   moveAnim = null;
   wind = (Math.random() - 0.5) * 70;
   buildWeaponSelect();
@@ -1532,12 +1632,36 @@ function showBanner(text, color) {
 /* ============================================================
    AI
    ============================================================ */
+function scoreWeaponForAI(wi, personality) {
+  const w = WEAPONS[wi];
+  switch (personality) {
+    case "sniper": return w.damage * (w.count === 1 ? 2 : 0.3) * w.speed;
+    case "aggressive": return w.radius * w.count + w.damage * 0.3;
+    case "heavy": return w.damage * w.radius * 0.05 + (w.nuke ? 50 : 0);
+    case "chaotic": return Math.random() * 100;
+    case "balanced": return w.damage * 0.5 + w.radius * 0.3 + (w.count > 1 ? 10 : 0);
+    case "tactical": return w.damage > 10 ? w.damage + w.radius * 0.2 : 1;
+    case "expert": return w.damage * 0.8 + w.radius * 0.4 + (w.homing ? 20 : 0) + (w.nuke ? 30 : 0);
+    default: return Math.random() * 100;
+  }
+}
+
 function aiThink() {
   const ai = tanks[1], target = tanks[0];
   const available = [];
-  for (let i = 0; i < WEAPONS.length; i++) { if (!ai.usedWeapons.has(i)) available.push(i); }
-  if (available.length === 0) { selectedWeapon = 0; }
-  else { selectedWeapon = available[Math.floor(Math.random() * available.length)]; }
+  for (const wi of ai.inventory) { if (!ai.usedWeapons.has(wi)) available.push(wi); }
+  if (available.length === 0) { selectedWeapon = ai.inventory[0] || 0; }
+  else if (campaignMode) {
+    const pers = CAMPAIGN_OPPONENTS[campaignLevel].personality;
+    let bestWi = available[0], bestS = -1;
+    for (const wi of available) {
+      const s = scoreWeaponForAI(wi, pers);
+      if (s > bestS) { bestS = s; bestWi = wi; }
+    }
+    selectedWeapon = bestWi;
+  } else {
+    selectedWeapon = available[Math.floor(Math.random() * available.length)];
+  }
   buildWeaponSelect();
   let bestAngle = 45, bestPower = 50, bestDist = Infinity;
   for (let ta = 20; ta <= 80; ta += 3) {
@@ -1548,7 +1672,7 @@ function aiThink() {
       let pvx = -spd * Math.cos(a), pvy = -spd * Math.sin(a);
       const sdt = 0.04;
       for (let i = 0; i < 200; i++) {
-        pvx += wind * sdt; pvy += GRAVITY * sdt;
+        pvx += wind * sdt; pvy += GRAVITY * gameSettings.gravity * sdt;
         px += pvx * sdt; py += pvy * sdt;
         if (px < 0 || px >= CW || py > CH) break;
         if (py >= terrainY(px)) {
@@ -1559,8 +1683,9 @@ function aiThink() {
       }
     }
   }
-  angle = ((Math.round(bestAngle + (Math.random() - 0.5) * 14) % 360) + 360) % 360;
-  power = Math.round(Math.max(10, Math.min(100, bestPower + (Math.random() - 0.5) * 16)));
+  const scatter = campaignMode ? (1 - CAMPAIGN_OPPONENTS[campaignLevel].accuracy) * 30 : 14;
+  angle = ((Math.round(bestAngle + (Math.random() - 0.5) * scatter) % 360) + 360) % 360;
+  power = Math.round(Math.max(10, Math.min(100, bestPower + (Math.random() - 0.5) * scatter)));
   updateHUD();
   fireProjectile();
 }
@@ -1574,7 +1699,7 @@ function updateHUD() {
   if (tanks.length >= 2) {
     p1Score.textContent = tanks[0].score;
     p2Score.textContent = tanks[1].score;
-    roundLabel.textContent = `RD ${Math.min(roundNumber + 1, TOTAL_ROUNDS)}/${TOTAL_ROUNDS}`;
+    roundLabel.textContent = `RD ${Math.min(roundNumber + 1, gameSettings.rounds)}/${gameSettings.rounds}`;
     const t = tanks[currentPlayer];
     moveCounter.textContent = t.movesLeft;
     moveCounter.style.color = t.movesLeft > 0 ? "" : "rgba(255,80,80,0.5)";
@@ -1589,18 +1714,21 @@ function updateHUD() {
 function buildWeaponSelect() {
   const sel = $("weapon-select");
   sel.innerHTML = "";
-  const used = tanks.length ? tanks[currentPlayer].usedWeapons : new Set();
-  WEAPONS.forEach((w, i) => {
+  const tank = tanks.length ? tanks[currentPlayer] : null;
+  const inv = tank ? tank.inventory : [];
+  const used = tank ? tank.usedWeapons : new Set();
+  inv.forEach(wi => {
+    const w = WEAPONS[wi];
     const opt = document.createElement("option");
-    opt.value = i;
-    opt.textContent = used.has(i) ? `✗ ${w.name}` : w.name;
-    opt.disabled = used.has(i);
-    if (i === selectedWeapon) opt.selected = true;
+    opt.value = wi;
+    opt.textContent = used.has(wi) ? `✗ ${w.name}` : w.name;
+    opt.disabled = used.has(wi);
+    if (wi === selectedWeapon) opt.selected = true;
     sel.appendChild(opt);
   });
-  if (used.has(selectedWeapon)) {
-    for (let i = 0; i < WEAPONS.length; i++) {
-      if (!used.has(i)) { selectedWeapon = i; sel.value = i; break; }
+  if (!inv.includes(selectedWeapon) || used.has(selectedWeapon)) {
+    for (const wi of inv) {
+      if (!used.has(wi)) { selectedWeapon = wi; sel.value = wi; break; }
     }
   }
 }
@@ -1622,6 +1750,21 @@ function showGameOver() {
   $("winner-text").textContent = wLabel;
   $("winner-text").style.color = wColor;
   $("score-line").textContent = "";
+  const nextBtn = $("campaign-next-btn");
+  if (campaignMode) {
+    const won = s0 > s1;
+    if (won && campaignLevel < CAMPAIGN_OPPONENTS.length - 1) {
+      nextBtn.textContent = "NEXT ▶"; nextBtn.style.display = "";
+    } else if (won) {
+      $("winner-text").textContent = "CAMPAIGN COMPLETE!";
+      $("winner-text").style.color = "var(--accent)";
+      nextBtn.textContent = "MENU"; nextBtn.style.display = "";
+    } else {
+      nextBtn.textContent = "RETRY ↻"; nextBtn.style.display = "";
+    }
+  } else {
+    nextBtn.style.display = "none";
+  }
   goOverlay.style.display = "flex";
 }
 
@@ -1708,11 +1851,15 @@ weaponSelect.addEventListener("change", () => {
 });
 
 function cycleWeapon(dir) {
-  const used = tanks.length ? tanks[currentPlayer].usedWeapons : new Set();
-  let i = selectedWeapon;
-  for (let n = 0; n < WEAPONS.length; n++) {
-    i = (i + dir + WEAPONS.length) % WEAPONS.length;
-    if (!used.has(i)) { selectedWeapon = i; buildWeaponSelect(); return; }
+  const tank = tanks.length ? tanks[currentPlayer] : null;
+  if (!tank) return;
+  const inv = tank.inventory;
+  const used = tank.usedWeapons;
+  let idx = inv.indexOf(selectedWeapon);
+  if (idx < 0) idx = 0;
+  for (let n = 0; n < inv.length; n++) {
+    idx = (idx + dir + inv.length) % inv.length;
+    if (!used.has(inv[idx])) { selectedWeapon = inv[idx]; buildWeaponSelect(); return; }
   }
 }
 
@@ -1730,11 +1877,129 @@ function showNameScreen(cpu) {
   $("p1-name-input").focus();
 }
 
+function showCampaignScreen() {
+  modeOverlay.style.display = "none";
+  const opp = CAMPAIGN_OPPONENTS[campaignLevel];
+  $("campaign-level").textContent = `LEVEL ${campaignLevel + 1}`;
+  $("campaign-opp-name").textContent = opp.name;
+  $("campaign-opp-name").style.color = opp.color;
+  $("campaign-opp-title").textContent = opp.title;
+  $("campaign-opp-desc").textContent = opp.desc;
+  const filled = Math.round((campaignLevel + 1) / CAMPAIGN_OPPONENTS.length * 5);
+  $("campaign-diff").textContent = "●".repeat(filled) + "○".repeat(5 - filled);
+  campaignOverlay.style.display = "flex";
+}
+
+/* ── DRAFT ── */
+function initDraft() {
+  const perPlayer = gameSettings.rounds;
+  const poolSize = Math.min(perPlayer * 2, WEAPONS.length);
+  const indices = Array.from({length: WEAPONS.length}, (_, i) => i);
+  for (let i = indices.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [indices[i], indices[j]] = [indices[j], indices[i]];
+  }
+  draftPool = indices.slice(0, poolSize);
+  draftPicks = [[], []];
+  draftTurn = 0;
+  $("draft-p1-name").textContent = playerNames[0];
+  $("draft-p2-name").textContent = playerNames[1];
+  renderDraftGrid();
+  updateDraftUI();
+  draftOverlay.style.display = "flex";
+  if (vsCPU && draftTurn === 1) setTimeout(cpuDraftPick, 600);
+}
+
+function renderDraftGrid() {
+  const grid = $("draft-grid");
+  grid.innerHTML = "";
+  draftPool.forEach((wi, poolIdx) => {
+    const w = WEAPONS[wi];
+    const card = document.createElement("div");
+    card.className = "draft-card";
+    card.setAttribute("role", "button");
+    card.setAttribute("tabindex", "0");
+    card.innerHTML = `<span class="draft-card-dot" style="background:${w.color}"></span><div class="draft-card-name">${w.name}</div><div class="draft-card-stats">DMG ${w.damage} · R ${w.radius}</div>`;
+    card.addEventListener("click", () => {
+      if (vsCPU && draftTurn === 1) return;
+      pickFromPool(poolIdx);
+    });
+    grid.appendChild(card);
+  });
+}
+
+function pickFromPool(poolIdx) {
+  const card = $("draft-grid").children[poolIdx];
+  if (card.classList.contains("picked")) return;
+  const wi = draftPool[poolIdx];
+  draftPicks[draftTurn].push(wi);
+  card.classList.add("picked", draftTurn === 0 ? "picked-p1" : "picked-p2");
+  const perPlayer = gameSettings.rounds;
+  if (draftPicks[0].length >= perPlayer && draftPicks[1].length >= perPlayer) {
+    setTimeout(finishDraft, 350);
+    return;
+  }
+  if (draftPicks[1 - draftTurn].length < perPlayer) draftTurn = 1 - draftTurn;
+  updateDraftUI();
+  if (vsCPU && draftTurn === 1) setTimeout(cpuDraftPick, 450);
+}
+
+function cpuDraftPick() {
+  const perPlayer = gameSettings.rounds;
+  if (draftPicks[1].length >= perPlayer) return;
+  const available = [];
+  draftPool.forEach((wi, idx) => {
+    if (!$("draft-grid").children[idx].classList.contains("picked")) available.push(idx);
+  });
+  if (!available.length) return;
+  const pers = campaignMode ? CAMPAIGN_OPPONENTS[campaignLevel].personality : "balanced";
+  let bestIdx = available[0], bestS = -1;
+  for (const pi of available) {
+    const s = scoreWeaponForAI(draftPool[pi], pers);
+    if (s > bestS) { bestS = s; bestIdx = pi; }
+  }
+  pickFromPool(bestIdx);
+}
+
+function updateDraftUI() {
+  const pp = gameSettings.rounds;
+  $("draft-p1-count").textContent = `${draftPicks[0].length}/${pp}`;
+  $("draft-p2-count").textContent = `${draftPicks[1].length}/${pp}`;
+  $("draft-p1").className = `draft-player${draftTurn === 0 ? " active" : ""}`;
+  $("draft-p2").className = `draft-player${draftTurn === 1 ? " active" : ""}`;
+  $("draft-turn-label").textContent = `${playerNames[draftTurn]}'s pick`;
+  $("draft-turn-label").style.color = draftTurn === 0 ? "var(--p1)" : "var(--p2)";
+}
+
+function finishDraft() {
+  draftOverlay.style.display = "none";
+  launchGame();
+}
+
+/* ── SETTINGS ── */
+document.querySelectorAll(".setting-opts").forEach(group => {
+  group.querySelectorAll("button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      group.querySelectorAll("button").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      const id = group.id;
+      const val = btn.dataset.val;
+      if (id === "set-rounds") gameSettings.rounds = +val;
+      else if (id === "set-sound") gameSettings.sound = val === "1";
+      else if (id === "set-gravity") gameSettings.gravity = +val;
+      else if (id === "set-draft") gameSettings.autoDraft = val === "1";
+    });
+  });
+});
+
+/* ── EVENT LISTENERS ── */
 $("btn-2p").addEventListener("click", () => showNameScreen(false));
 $("btn-cpu").addEventListener("click", () => showNameScreen(true));
+$("btn-campaign").addEventListener("click", () => { campaignMode = true; showCampaignScreen(); });
 
 $("btn-back").addEventListener("click", () => {
   nameOverlay.style.display = "none";
+  if (campaignMode) { campaignMode = false; }
   modeOverlay.style.display = "flex";
 });
 
@@ -1742,13 +2007,68 @@ $("btn-start").addEventListener("click", () => startGame());
 $("p1-name-input").addEventListener("keydown", e => { if (e.key === "Enter") $("p2-name-input").focus(); });
 $("p2-name-input").addEventListener("keydown", e => { if (e.key === "Enter") startGame(); });
 
+$("btn-campaign-back").addEventListener("click", () => {
+  campaignOverlay.style.display = "none";
+  campaignMode = false;
+  modeOverlay.style.display = "flex";
+});
+
+$("btn-campaign-fight").addEventListener("click", () => {
+  campaignOverlay.style.display = "none";
+  vsCPU = true;
+  const opp = CAMPAIGN_OPPONENTS[campaignLevel];
+  playerNames[0] = $("p1-name-input").value.trim() || "PLAYER 1";
+  playerNames[1] = opp.name;
+  $("p1-name").textContent = playerNames[0];
+  $("p2-name").textContent = playerNames[1];
+  initDraft();
+});
+
+$("btn-settings").addEventListener("click", () => {
+  modeOverlay.style.display = "none";
+  settingsOverlay.style.display = "flex";
+});
+$("btn-settings-done").addEventListener("click", () => {
+  settingsOverlay.style.display = "none";
+  modeOverlay.style.display = "flex";
+});
+
 $("restart-btn").addEventListener("click", () => {
   goOverlay.style.display = "none";
   $("hud").style.display = "none";
   $("controls").style.display = "none";
+  campaignMode = false;
+  $("campaign-next-btn").style.display = "none";
   modeOverlay.style.display = "flex";
   phase = "menu";
 });
+
+$("campaign-next-btn").addEventListener("click", () => {
+  goOverlay.style.display = "none";
+  $("hud").style.display = "none";
+  $("controls").style.display = "none";
+  const s0 = tanks[0].score, s1 = tanks[1].score;
+  const won = s0 > s1;
+  if (won && campaignLevel < CAMPAIGN_OPPONENTS.length - 1) {
+    campaignLevel++;
+    showCampaignScreen();
+  } else if (won) {
+    campaignMode = false; campaignLevel = 0;
+    modeOverlay.style.display = "flex"; phase = "menu";
+  } else {
+    showCampaignScreen();
+  }
+});
+
+function autoAssignWeapons() {
+  const perPlayer = gameSettings.rounds;
+  const indices = Array.from({length: WEAPONS.length}, (_, i) => i);
+  for (let i = indices.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [indices[i], indices[j]] = [indices[j], indices[i]];
+  }
+  draftPicks = [indices.slice(0, perPlayer), indices.slice(perPlayer, perPlayer * 2)];
+}
 
 function startGame() {
   const n1 = $("p1-name-input").value.trim();
@@ -1758,6 +2078,15 @@ function startGame() {
   $("p1-name").textContent = playerNames[0];
   $("p2-name").textContent = playerNames[1];
   nameOverlay.style.display = "none";
+  if (gameSettings.autoDraft) {
+    autoAssignWeapons();
+    launchGame();
+  } else {
+    initDraft();
+  }
+}
+
+function launchGame() {
   modeOverlay.style.display = "none";
   goOverlay.style.display = "none";
   $("hud").style.display = "flex";
@@ -1767,14 +2096,15 @@ function startGame() {
   buildTerrainDetailLayer();
   initClouds();
   initBats();
+  initWeather();
   tanks = [
-    createTank(0, 80 + Math.floor(Math.random() * 180)),
-    createTank(1, CW - 80 - Math.floor(Math.random() * 180))
+    createTank(0, 80 + Math.floor(Math.random() * 180), draftPicks[0]),
+    createTank(1, CW - 80 - Math.floor(Math.random() * 180), draftPicks[1])
   ];
   projectiles = []; particles = []; smokeParticles = [];
   explosions = []; floatingTexts = [];
   currentPlayer = 0; angle = 45; power = 50;
-  selectedWeapon = 0; moveAnim = null;
+  selectedWeapon = tanks[0].inventory[0] || 0; moveAnim = null;
   wind = (Math.random() - 0.5) * 70;
   roundNumber = 0; shotsThisRound = 0;
   shakeTimer = 0; settleTimer = 0; aiDelay = 0;
@@ -1791,14 +2121,19 @@ function startGame() {
 let lastTime = 0;
 
 function loop(timestamp) {
+  try { loopInner(timestamp); } catch (e) { console.error("loop error:", e); }
+  requestAnimationFrame(loop);
+}
+
+function loopInner(timestamp) {
   const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
   lastTime = timestamp;
   gameTime += dt;
 
-  // update
   updateClouds(dt);
   updateBats(dt);
   updateSmoke(dt);
+  updateWeather(dt);
 
   if (phase !== "menu" && phase !== "gameover") {
     handleInput(dt);
@@ -1829,7 +2164,9 @@ function loop(timestamp) {
   drawSky();
   drawClouds();
   drawBats();
+  drawWeather();
   drawMountains();
+  flushTerrainDetail();
   drawTerrain();
   drawWater();
   drawWindArrow();
@@ -1846,7 +2183,6 @@ function loop(timestamp) {
 
   drawVignette();
   ctx.restore();
-  requestAnimationFrame(loop);
 }
 
 // kick off

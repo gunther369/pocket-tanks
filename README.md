@@ -2,9 +2,23 @@
 
 A browser-based artillery duel inspired by the classic Pocket Tanks game. Two players (or one player vs CPU) take turns lobbing projectiles across destructible terrain, competing for the highest score over 10 rounds.
 
+## Live demo (GitHub Pages)
+
+After you push this repo to GitHub:
+
+1. In the repository, go to **Settings → Pages**.
+2. Under **Build and deployment**, set **Source** to **GitHub Actions** (not “Deploy from a branch”).
+3. The **Deploy GitHub Pages** workflow runs on every push to `main`. Open the workflow run to copy the deployment URL, or use:
+
+   `https://<your-username>.github.io/<repository-name>/`
+
+   Example: `https://octocat.github.io/pocket-tanks/`
+
+The game uses relative asset paths (`index.html`, `game.js`, `style.css`), so it works both locally and under a `/repository-name/` base path on Pages.
+
 ## How to Play
 
-Open `index.html` in any modern browser — no build step or server required.
+Open `index.html` in any modern browser — no build step or server required. For the hosted demo, open the Pages URL above.
 
 ### Start Screen
 

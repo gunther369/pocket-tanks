@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 <div id="game-wrapper">
@@ -44,7 +44,11 @@
         <button class="mode-btn" id="btn-cpu">
           <span class="mode-icon">&#9881;</span>vs CPU
         </button>
+        <button class="mode-btn" id="btn-campaign">
+          <span class="mode-icon">&#9876;</span>Campaign
+        </button>
       </div>
+      <button class="settings-gear" id="btn-settings" title="Settings">&#9881;</button>
     </div>
 
     <div id="name-overlay">
@@ -65,10 +69,49 @@
       </div>
     </div>
 
+    <div id="draft-overlay">
+      <h2 class="overlay-title">WEAPON DRAFT</h2>
+      <div class="draft-info">
+        <div class="draft-player active" id="draft-p1"><span class="draft-pname p1-color" id="draft-p1-name">P1</span><span class="draft-pcount" id="draft-p1-count">0/10</span></div>
+        <div class="draft-turn-label" id="draft-turn-label">Pick a weapon!</div>
+        <div class="draft-player" id="draft-p2"><span class="draft-pname p2-color" id="draft-p2-name">P2</span><span class="draft-pcount" id="draft-p2-count">0/10</span></div>
+      </div>
+      <div id="draft-grid"></div>
+    </div>
+
+    <div id="campaign-overlay">
+      <h2 class="overlay-title">CAMPAIGN</h2>
+      <div id="campaign-card">
+        <div class="campaign-level" id="campaign-level">LEVEL 1</div>
+        <div class="campaign-opp-name" id="campaign-opp-name"></div>
+        <div class="campaign-opp-title" id="campaign-opp-title"></div>
+        <div class="campaign-opp-desc" id="campaign-opp-desc"></div>
+        <div class="campaign-diff" id="campaign-diff"></div>
+      </div>
+      <div class="name-actions">
+        <button class="mode-btn name-back-btn" id="btn-campaign-back">&#8592; Back</button>
+        <button class="mode-btn name-start-btn" id="btn-campaign-fight">Fight &#9876;</button>
+      </div>
+    </div>
+
+    <div id="settings-overlay">
+      <h2 class="overlay-title">SETTINGS</h2>
+      <div class="settings-body">
+        <div class="setting-row"><span class="setting-label">Rounds</span><div class="setting-opts" id="set-rounds"><button data-val="5">5</button><button data-val="10" class="active">10</button><button data-val="15">15</button></div></div>
+        <div class="setting-row"><span class="setting-label">Sound</span><div class="setting-opts" id="set-sound"><button data-val="1" class="active">On</button><button data-val="0">Off</button></div></div>
+        <div class="setting-row"><span class="setting-label">Gravity</span><div class="setting-opts" id="set-gravity"><button data-val="0.5">Moon</button><button data-val="1" class="active">Normal</button><button data-val="1.5">Heavy</button></div></div>
+        <div class="setting-row"><span class="setting-label">Weapons</span><div class="setting-opts" id="set-draft"><button data-val="0" class="active">Draft</button><button data-val="1">Auto</button></div></div>
+      </div>
+      <button class="mode-btn name-start-btn" id="btn-settings-done">Done</button>
+    </div>
+
     <div id="game-over-overlay">
       <h2 id="winner-text"></h2>
       <div class="score-line" id="score-line"></div>
-      <button id="restart-btn">NEW GAME</button>
+      <div class="go-buttons">
+        <button id="restart-btn">NEW GAME</button>
+        <button id="campaign-next-btn" style="display:none">NEXT &#9654;</button>
+      </div>
     </div>
   </div>
 
@@ -119,6 +162,6 @@
     </div>
   </div>
 </div>
-<script src="game.js"></script>
+<script src="game.js?v=5"></script>
 </body>
 </html>
